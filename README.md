@@ -94,6 +94,45 @@ Permanently deletes the given table (object store) from the database.
 await db.drop("users");
 ```
 
+### `export(config?): Promise<string | void>`
+
+Exports the entire database into a JSON string. Optionally triggers a file download.
+
+#### Parameters:
+
+```ts
+config?: {
+  filename?: string; // default: "db_backup"
+  download?: boolean; // default: true
+}
+```
+
+#### Example (download JSON):
+
+```js
+await db.export(); // downloads "db_backup.json"
+```
+
+#### Example (get as string):
+
+```js
+const json = await db.export({ download: false });
+console.log(json);
+```
+
+### `import(jsonString: string): Promise<void>`
+
+Imports data from a JSON string and restores the full database structure and content.
+
+This will **overwrite existing records** in the database.
+
+#### Example:
+
+```js
+const backupJson = '{ "users": [ { "key": 1, "value": { "name": "Alice" } } ] }';
+await db.import(backupJson);
+```
+
 ## Notes
 
 - All operations return Promises, make sure to `await` them or use `.then()`.

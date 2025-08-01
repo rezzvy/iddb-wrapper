@@ -201,4 +201,89 @@ class IDDB_Wrapper {
       request.onerror = reject;
     });
   }
+
+  async export(config) {
+    const { filename = "db_backup", download = true } = config ?? {};
+    const exportData = {};
+
+    const request = indexedDB.open(this.#dbName);
+    const db = await new Promise((resolve, reject) => {
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = reject;
+    });
+
+    const tableNames = Array.from(db.objectStoreNames);
+
+    for (const tableName of tableNames) {
+      const tableData = await new Promise((resolve, reject) => {
+        const tx = db.transaction(tableName, "readonly");
+        const store = tx.objectStore(tableName);
+        const items = [];
+        const cursorRequest = store.openCursor();
+
+        cursorRequest.onsuccess = (event) => {
+          const cursor = event.target.result;
+          if (cursor) {
+            items.push({ key: cursor.key, value: cursor.value });
+            cursor.continue();
+          } else {
+            resolve(items);
+          }
+        };
+
+        cursorRequest.onerror = reject;
+      });
+
+      exportData[tableName] = tableData;
+    }
+
+    db.close();
+
+    const jsonString = JSON.stringify(exportData, null, 2);
+
+    if (download) {
+      const blob = new Blob([jsonString], { type: "application/json" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = filename + ".json";
+      a.click();
+
+      setTimeout(() => {
+        URL.revokeObjectURL(a.href);
+      }, 1000);
+      return;
+    }
+
+    return jsonString;
+  }
+
+  async import(jsonString) {
+    let data;
+    try {
+      data = JSON.parse(jsonString);
+    } catch (err) {
+      throw new Error("Invalid JSON format");
+    }
+
+    for (const tableName in data) {
+      const db = await this.#openDBWithStore(tableName);
+
+      await this.#clear(db, tableName);
+
+      const tx = db.transaction(tableName, "readwrite");
+      const store = tx.objectStore(tableName);
+
+      for (const { key, value } of data[tableName]) {
+        store.put(value, key);
+      }
+
+      await new Promise((resolve, reject) => {
+        tx.oncomplete = resolve;
+        tx.onerror = reject;
+      });
+
+      db.close();
+      this.#db = null;
+    }
+  }
 }
