@@ -2,6 +2,7 @@ class IDDB_Wrapper {
   #dbName;
   #db = null;
   #tables = new Map();
+  #activeTable = null;
 
   constructor(dbName) {
     this.#dbName = dbName;
@@ -26,9 +27,14 @@ class IDDB_Wrapper {
   }
 
   async #openDBWithStore(tableName) {
-    if (this.#db && this.#db.close) {
+    if (this.#db && this.#activeTable === tableName) {
+      return this.#db;
+    }
+
+    if (this.#db) {
       this.#db.close();
       this.#db = null;
+      this.#activeTable = null;
     }
 
     return new Promise((resolve, reject) => {
@@ -44,6 +50,7 @@ class IDDB_Wrapper {
       request.onsuccess = () => {
         const db = request.result;
         this.#db = db;
+        this.#activeTable = tableName;
 
         if (!db.objectStoreNames.contains(tableName)) {
           db.close();
@@ -56,6 +63,7 @@ class IDDB_Wrapper {
 
           upgradeReq.onsuccess = () => {
             this.#db = upgradeReq.result;
+            this.#activeTable = tableName;
             resolve(this.#db);
           };
 
