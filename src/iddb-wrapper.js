@@ -224,7 +224,7 @@ class IDDB_Wrapper {
         cursorRequest.onsuccess = (event) => {
           const cursor = event.target.result;
           if (cursor) {
-            items.push({ key: cursor.key, value: cursor.value });
+            items.push({ key: cursor.key, value: cursor.value }); // 🐣 no async here
             cursor.continue();
           } else {
             resolve(items);
@@ -234,7 +234,14 @@ class IDDB_Wrapper {
         cursorRequest.onerror = reject;
       });
 
-      exportData[tableName] = tableData;
+      const processedData = await Promise.all(
+        tableData.map(async ({ key, value }) => ({
+          key,
+          value: await this.#replaceBlobsWithBase64(value),
+        }))
+      );
+
+      exportData[tableName] = processedData;
     }
 
     db.close();
@@ -267,14 +274,14 @@ class IDDB_Wrapper {
 
     for (const tableName in data) {
       const db = await this.#openDBWithStore(tableName);
-
       await this.#clear(db, tableName);
 
       const tx = db.transaction(tableName, "readwrite");
       const store = tx.objectStore(tableName);
 
       for (const { key, value } of data[tableName]) {
-        store.put(value, key);
+        const restoredValue = await this.#restoreBlobsFromBase64(value);
+        store.put(restoredValue, key);
       }
 
       await new Promise((resolve, reject) => {
@@ -285,5 +292,73 @@ class IDDB_Wrapper {
       db.close();
       this.#db = null;
     }
+  }
+
+  async #restoreBlobsFromBase64(obj) {
+    if (typeof obj === "string" && obj.startsWith("__BLOB__:")) {
+      const base64 = obj.replace("__BLOB__:", "");
+      return this.#base64ToBlob(base64);
+    }
+
+    if (Array.isArray(obj)) {
+      return Promise.all(obj.map((item) => this.#restoreBlobsFromBase64(item)));
+    }
+
+    if (typeof obj === "object" && obj !== null) {
+      const newObj = {};
+      for (const [key, value] of Object.entries(obj)) {
+        newObj[key] = await this.#restoreBlobsFromBase64(value);
+      }
+      return newObj;
+    }
+
+    return obj;
+  }
+
+  #isBlob(value) {
+    return value instanceof Blob;
+  }
+
+  #blobToBase64(blob) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        resolve("__BLOB__:" + reader.result);
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    });
+  }
+
+  #base64ToBlob(base64String) {
+    const parts = base64String.split(",");
+    const match = parts[0].match(/:(.*?);/);
+    const mime = match ? match[1] : "";
+    const byteString = atob(parts[1]);
+    const array = new Uint8Array(byteString.length);
+    for (let i = 0; i < byteString.length; i++) {
+      array[i] = byteString.charCodeAt(i);
+    }
+    return new Blob([array], { type: mime });
+  }
+
+  async #replaceBlobsWithBase64(obj) {
+    if (this.#isBlob(obj)) {
+      return await this.#blobToBase64(obj);
+    }
+
+    if (Array.isArray(obj)) {
+      return Promise.all(obj.map((item) => this.#replaceBlobsWithBase64(item)));
+    }
+
+    if (typeof obj === "object" && obj !== null) {
+      const newObj = {};
+      for (const [key, value] of Object.entries(obj)) {
+        newObj[key] = await this.#replaceBlobsWithBase64(value);
+      }
+      return newObj;
+    }
+
+    return obj;
   }
 }
