@@ -5,6 +5,10 @@ class IDDB_Wrapper {
   #activeTable = null;
 
   constructor(dbName) {
+    if (!dbName || typeof dbName !== "string" || dbName.trim() === "") {
+      throw new Error("Database name is required and must be a non-empty string.");
+    }
+
     this.#dbName = dbName;
   }
 
